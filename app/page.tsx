@@ -1,126 +1,119 @@
 "use client";
-// @ts-nocheck
 
-/* eslint-disable */
+/** * THE SAME SKY - FINAL PRODUCTION BUILD
+ * This version uses a Native HTML Audio strategy to bypass all Vercel/TypeScript build errors.
+ * * SETUP: Place your audio file in: /public/bg-music.mp3
+ */
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as THREE from 'three';
 
-// --- CONFIG & DESIGN TOKENS ---
-const COLORS = {
+// --- DESIGN SYSTEM ---
+const TOKENS = {
   midnight: '#040406',
   cherry: '#900C3F',
   lilac: '#C8A2C8',
+  audioPath: '/bg-music.mp3'
 };
 
-// Local audio fallback (Place this file in your Next.js 'public' folder)
-const AUDIO_URL = '/bg-music.mp3';
-
 export default function App() {
+  // Application State
   const [mounted, setMounted] = useState(false);
   const [isStarted, setIsStarted] = useState(false);
   const [isDiscovered, setIsDiscovered] = useState(false);
-  const [controlMode, setControlMode] = useState('detecting'); // 'motion', 'touch', or 'detecting'
-  
-  // Using explicit any to bypass strict Next.js/Vercel build worker type checks
+  const [mode, setMode] = useState('initializing'); // 'motion' | 'touch'
+
+  // Refs (Typed as 'any' to ensure Vercel Build Worker ignores internal Three.js types)
   const containerRef = useRef<any>(null);
   const audioRef = useRef<any>(null);
-  const sceneRef = useRef<any>({
+  const engine = useRef<any>({
     renderer: null,
     scene: null,
     camera: null,
+    stars: null,
+    sprite: null,
     frameId: null
   });
 
-  // 1. Initial Setup: Hydration Guard and Fonts
+  // 1. Initial Setup (Fonts & Hydration)
   useEffect(() => {
     setMounted(true);
     
-    if (typeof document !== 'undefined') {
-      const link = document.createElement('link');
-      link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300&family=Playfair+Display:ital,wght@0,400;1,400&display=swap';
-      link.rel = 'stylesheet';
-      document.head.appendChild(link);
-    }
+    const link = document.createElement('link');
+    link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300&family=Playfair+Display:ital,wght@0,400;1,400&display=swap';
+    link.rel = 'stylesheet';
+    document.head.appendChild(link);
 
     return () => {
-      if (sceneRef.current.frameId) {
-        cancelAnimationFrame(sceneRef.current.frameId);
-      }
+      if (engine.current.frameId) cancelAnimationFrame(engine.current.frameId);
     };
   }, []);
 
-  // 2. Pure Three.js Engine
+  // 2. Three.js Engine Setup
   useEffect(() => {
     if (!isStarted || !containerRef.current || !mounted) return;
 
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-
-    // -- RENDERER --
+    // -- SETUP --
+    const w = window.innerWidth;
+    const h = window.innerHeight;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     containerRef.current.appendChild(renderer.domElement);
-    sceneRef.current.renderer = renderer;
+    engine.current.renderer = renderer;
 
-    // -- SCENE --
     const scene = new THREE.Scene();
-    sceneRef.current.scene = scene;
+    engine.current.scene = scene;
 
-    // -- CAMERA --
-    const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(75, w / h, 0.1, 1000);
     camera.position.set(0, 0, 0.1);
-    sceneRef.current.camera = camera;
+    engine.current.camera = camera;
 
-    // -- SKYBOX --
-    const geometry = new THREE.SphereGeometry(500, 32, 32);
+    // -- SKY GRADIENT --
+    const skyGeo = new THREE.SphereGeometry(500, 32, 32);
     const skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       uniforms: {
-        colorTop: { value: new THREE.Color(COLORS.midnight) },
-        colorBottom: { value: new THREE.Color(COLORS.cherry) }
+        t: { value: new THREE.Color(TOKENS.midnight) },
+        b: { value: new THREE.Color(TOKENS.cherry) }
       },
       vertexShader: `
-        varying vec3 vWorldPosition;
+        varying vec3 vP;
         void main() {
-          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-          vWorldPosition = worldPosition.xyz;
+          vP = (modelMatrix * vec4(position, 1.0)).xyz;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: `
-        uniform vec3 colorTop;
-        uniform vec3 colorBottom;
-        varying vec3 vWorldPosition;
+        uniform vec3 t;
+        uniform vec3 b;
+        varying vec3 vP;
         void main() {
-          vec3 direction = normalize(vWorldPosition);
-          float mixFactor = (direction.y + 1.0) * 0.5;
-          gl_FragColor = vec4(mix(colorBottom, colorTop, mixFactor), 1.0);
+          float m = smoothstep(-1.0, 1.0, normalize(vP).y);
+          gl_FragColor = vec4(mix(b, t, m), 1.0);
         }
       `
     });
-    scene.add(new THREE.Mesh(geometry, skyMat));
+    scene.add(new THREE.Mesh(skyGeo, skyMat));
 
-    // -- STARS --
-    const starCoords = [];
-    for (let i = 0; i < 3500; i++) {
-      starCoords.push(THREE.MathUtils.randFloatSpread(1000), THREE.MathUtils.randFloatSpread(1000), THREE.MathUtils.randFloatSpread(1000));
+    // -- STAR FIELD --
+    const points = [];
+    for (let i = 0; i < 4000; i++) {
+      points.push(THREE.MathUtils.randFloatSpread(1000), THREE.MathUtils.randFloatSpread(1000), THREE.MathUtils.randFloatSpread(1000));
     }
     const starGeo = new THREE.BufferGeometry();
-    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starCoords, 3));
-    const starPoints = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.8, transparent: true, opacity: 0.7 }));
-    scene.add(starPoints);
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+    const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.7, transparent: true, opacity: 0.6 }));
+    scene.add(stars);
 
-    // -- CONSTELLATION SPRITE --
+    // -- TARGET SPRITE (Guriyaa) --
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      canvas.width = 512;
-      canvas.height = 256;
-      ctx.font = 'italic 80px "Playfair Display", serif'; 
-      ctx.fillStyle = COLORS.lilac;
+      canvas.width = 512; canvas.height = 256;
+      ctx.font = 'italic 80px "Playfair Display", serif';
+      ctx.fillStyle = TOKENS.lilac;
       ctx.textAlign = 'center';
       ctx.fillText('Guriyaa', 256, 128);
     }
@@ -129,50 +122,38 @@ export default function App() {
     sprite.scale.set(45, 22.5, 1);
     scene.add(sprite);
 
-    // -- HYBRID INPUTS --
+    // -- CONTROLS LOGIC --
     const targetVec = new THREE.Vector3(0, 45, -100).normalize();
-    const currentDir = new THREE.Vector3();
-    let alpha = 0, beta = 0, gamma = 0;
-    let isDragging = false;
-    let lon = 0, lat = 0;
-    let startX = 0, startY = 0;
+    const curDir = new THREE.Vector3();
+    let a = 0, b = 0, g = 0, lon = 0, lat = 0, isDown = false, sx = 0, sy = 0;
 
     const onOrient = (e: any) => {
       if (e.alpha !== null) {
-        setControlMode('motion');
-        alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
-        beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;
-        gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
+        setMode('motion');
+        a = THREE.MathUtils.degToRad(e.alpha);
+        b = THREE.MathUtils.degToRad(e.beta);
+        g = THREE.MathUtils.degToRad(e.gamma);
       }
     };
-
-    const onDown = (e: any) => {
-      isDragging = true;
-      startX = e.touches ? e.touches[0].clientX : e.clientX;
-      startY = e.touches ? e.touches[0].clientY : e.clientY;
-    };
-
-    const onMove = (e: any) => {
-      if (!isDragging) return;
+    
+    const handleDown = (e: any) => { isDown = true; sx = e.touches ? e.touches[0].clientX : e.clientX; sy = e.touches ? e.touches[0].clientY : e.clientY; };
+    const handleMove = (e: any) => {
+      if (!isDown) return;
       const x = e.touches ? e.touches[0].clientX : e.clientX;
       const y = e.touches ? e.touches[0].clientY : e.clientY;
-      lon -= (x - startX) * 0.25;
-      lat += (y - startY) * 0.25;
-      lat = Math.max(-85, Math.min(85, lat));
-      startX = x;
-      startY = y;
-      if (controlMode !== 'motion') setControlMode('touch');
+      lon -= (x - sx) * 0.2; lat += (y - sy) * 0.2; lat = Math.max(-85, Math.min(85, lat));
+      sx = x; sy = y;
+      if (mode !== 'motion') setMode('touch');
     };
-
-    const onUp = () => { isDragging = false; };
+    const handleUp = () => isDown = false;
 
     window.addEventListener('deviceorientation', onOrient);
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('touchstart', onDown, { passive: false });
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onUp);
+    window.addEventListener('mousedown', handleDown);
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('touchstart', handleDown, { passive: false });
+    window.addEventListener('touchmove', handleMove, { passive: false });
+    window.addEventListener('touchend', handleUp);
 
     const onResize = () => {
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -181,112 +162,76 @@ export default function App() {
     };
     window.addEventListener('resize', onResize);
 
+    // -- LOOP --
     const animate = () => {
-      sceneRef.current.frameId = requestAnimationFrame(animate);
-      
-      if (controlMode === 'motion') {
-        camera.rotation.set(beta + Math.PI/2, alpha, -gamma, 'YXZ');
+      engine.current.frameId = requestAnimationFrame(animate);
+      if (mode === 'motion') {
+        camera.rotation.set(b + Math.PI/2, a, -g, 'YXZ');
       } else {
         const phi = THREE.MathUtils.degToRad(90 - lat);
         const theta = THREE.MathUtils.degToRad(lon);
-        const lookAtTarget = new THREE.Vector3(
-          Math.sin(phi) * Math.cos(theta),
-          Math.cos(phi),
-          Math.sin(phi) * Math.sin(theta)
-        );
-        camera.lookAt(lookAtTarget);
+        camera.lookAt(new THREE.Vector3(Math.sin(phi)*Math.cos(theta), Math.cos(phi), Math.sin(phi)*Math.sin(theta)));
       }
-
-      camera.getWorldDirection(currentDir);
-      if (currentDir.angleTo(targetVec) < 0.26) setIsDiscovered(true);
-
-      starPoints.rotation.y += 0.0003;
-      sprite.position.y = 45 + Math.sin(Date.now() * 0.0015) * 1.5;
+      camera.getWorldDirection(curDir);
+      if (curDir.angleTo(targetVec) < 0.25) setIsDiscovered(true);
+      stars.rotation.y += 0.0002;
+      sprite.position.y = 45 + Math.sin(Date.now() * 0.001) * 2;
       renderer.render(scene, camera);
     };
     animate();
 
     return () => {
       window.removeEventListener('deviceorientation', onOrient);
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('touchstart', onDown);
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', onUp);
+      window.removeEventListener('mousedown', handleDown);
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
       window.removeEventListener('resize', onResize);
       if (renderer.domElement && containerRef.current) containerRef.current.removeChild(renderer.domElement);
     };
-  }, [isStarted, controlMode, mounted]);
+  }, [isStarted, mode, mounted]);
 
-  const handleStart = async () => {
-    const win: any = window;
-    const DeviceOrientationEventAny = win.DeviceOrientationEvent;
-    
-    const isSecure = typeof window !== 'undefined' && (window.location.protocol === 'https:' || window.location.hostname === 'localhost');
-    
-    if (!isSecure) {
-      setControlMode('touch');
-    }
-
-    if (DeviceOrientationEventAny && typeof DeviceOrientationEventAny.requestPermission === 'function') {
+  const start = async () => {
+    const win = window as any;
+    if (win.DeviceOrientationEvent && typeof win.DeviceOrientationEvent.requestPermission === 'function') {
       try {
-        const res = await DeviceOrientationEventAny.requestPermission();
-        if (res === 'granted') setControlMode('motion');
-      } catch (e) {
-        setControlMode('touch');
-      }
+        const res = await win.DeviceOrientationEvent.requestPermission();
+        if (res === 'granted') setMode('motion');
+      } catch (e) { setMode('touch'); }
     }
-    
     setIsStarted(true);
-    
-    // Play audio safely using the ref attached to the HTML element
     if (audioRef.current) {
-      audioRef.current.volume = 0.4;
-      audioRef.current.play().catch(() => console.log("Audio waiting for stronger interaction."));
+      audioRef.current.volume = 0.5;
+      audioRef.current.play().catch(() => {});
     }
   };
 
-  if (!mounted) return <div style={{ background: COLORS.midnight, height: '100vh' }} />;
+  if (!mounted) return <div style={{ background: TOKENS.midnight, height: '100vh' }} />;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: COLORS.midnight, width: '100vw', height: '100dvh', overflow: 'hidden' }}>
+    <div style={{ position: 'fixed', inset: 0, background: TOKENS.midnight, width: '100vw', height: '100dvh', overflow: 'hidden' }}>
       
-      {/* HTML Native Audio element handles loading and types automatically */}
-      <audio ref={audioRef} src={AUDIO_URL} loop preload="auto" />
+      {/* NATIVE AUDIO: Bypasses HTMLAudioElement vs Null build error */}
+      <audio ref={audioRef} src={TOKENS.audioPath} loop preload="auto" />
 
       <div ref={containerRef} style={{ position: 'absolute', inset: 0, zIndex: 0 }} />
 
-      {isStarted && (
-        <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 5, color: 'rgba(255,255,255,0.3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '1px', pointerEvents: 'none' }}>
-          Mode: {controlMode}
-        </div>
-      )}
-
       <AnimatePresence>
         {!isStarted && (
-          <motion.div exit={{ opacity: 0 }} style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: COLORS.midnight, textAlign: 'center', padding: '30px' }}>
-            <motion.h1 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ fontSize: '3rem', fontStyle: 'italic', color: COLORS.lilac, marginBottom: '20px', fontFamily: "'Playfair Display', serif" }}>The Same Sky.</motion.h1>
-            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} style={{ opacity: 0.7, maxWidth: '280px', marginBottom: '60px', lineHeight: '1.6', fontFamily: "'Inter', sans-serif" }}>Different cities, different lives, but always under the same stars. <br/><br/> Look up or swipe to explore.</motion.p>
-            
-            {typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && (
-              <p style={{ color: '#ff4b4b', fontSize: '11px', marginBottom: '20px', maxWidth: '200px', opacity: 0.8 }}>
-                ⚠️ Non-HTTPS connection detected. Motion sensors will be disabled.
-              </p>
-            )}
-
-            <button onClick={handleStart} style={{ padding: '16px 45px', borderRadius: '40px', border: '1px solid rgba(200,162,200,0.5)', background: 'rgba(255,255,255,0.04)', color: 'white', fontSize: '0.9rem', letterSpacing: '4px', cursor: 'pointer', backdropFilter: 'blur(10px)', fontFamily: "'Inter', sans-serif" }}>LOOK UP</button>
+          <motion.div exit={{ opacity: 0 }} style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: TOKENS.midnight, textAlign: 'center', padding: '40px' }}>
+            <motion.h1 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ fontSize: '3rem', fontStyle: 'italic', color: TOKENS.lilac, marginBottom: '20px', fontFamily: 'serif' }}>The Same Sky.</motion.h1>
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} style={{ opacity: 0.6, maxWidth: '280px', marginBottom: '60px', lineHeight: '1.6', fontFamily: 'sans-serif' }}>Different cities, different lives, but always under the same stars. <br/><br/> Look up or swipe to explore.</motion.p>
+            <button onClick={start} style={{ padding: '16px 45px', borderRadius: '40px', border: `1px solid ${TOKENS.lilac}66`, background: 'rgba(255,255,255,0.05)', color: 'white', fontSize: '0.9rem', letterSpacing: '4px', cursor: 'pointer', backdropFilter: 'blur(10px)' }}>LOOK UP</button>
           </motion.div>
         )}
       </AnimatePresence>
 
       <AnimatePresence>
         {isDiscovered && (
-          <motion.div initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} style={{ position: 'absolute', bottom: '8%', left: '5%', right: '5%', zIndex: 5, display: 'flex', justifyContent: 'center' }}>
-            <div style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(25px)', border: '1px solid rgba(255,255,255,0.1)', padding: '32px', borderRadius: '32px', width: '100%', maxWidth: '420px', boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
-              <p style={{ color: COLORS.lilac, fontStyle: 'italic', fontSize: '1.5rem', marginBottom: '18px', lineHeight: '1.4', fontFamily: "'Playfair Display', serif" }}>"Faasle jism ko toh door kar sakte hain, par rooh toh hamesha tumhari hi qaid mein hai."</p>
-              <div style={{ width: '50px', height: '1px', background: 'rgba(255,255,255,0.2)', margin: '22px 0' }} />
-              <p style={{ fontSize: '0.9rem', color: '#ddd', fontWeight: 300, fontFamily: "'Inter', sans-serif" }}>I built this universe so we always have a place to meet. <br/><span style={{ opacity: 0.5, fontSize: '0.8rem' }}>— CodeSage</span></p>
+          <motion.div initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} style={{ position: 'absolute', bottom: '10%', left: '5%', right: '5%', zIndex: 5, display: 'flex', justifyContent: 'center' }}>
+            <div style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', padding: '30px', borderRadius: '30px', width: '100%', maxWidth: '400px' }}>
+              <p style={{ color: TOKENS.lilac, fontStyle: 'italic', fontSize: '1.4rem', marginBottom: '15px', lineHeight: '1.4', fontFamily: 'serif' }}>"Faasle jism ko toh door kar sakte hain, par rooh toh hamesha tumhari hi qaid mein hai."</p>
+              <div style={{ width: '40px', height: '1px', background: 'rgba(255,255,255,0.2)', margin: '20px 0' }} />
+              <p style={{ fontSize: '0.85rem', color: '#ccc', fontWeight: 300 }}>I built this universe so we always have a place to meet. <br/><span style={{ opacity: 0.4 }}>— CodeSage</span></p>
             </div>
           </motion.div>
         )}
