@@ -23,7 +23,7 @@ export default function App() {
   const [isDiscovered, setIsDiscovered] = useState(false);
   const [controlMode, setControlMode] = useState('detecting'); // 'motion', 'touch', or 'detecting'
   
-  // Explicitly typing as <any> to prevent Next.js build worker from failing on null assignments
+  // Using explicit any to bypass strict Next.js/Vercel build worker type checks
   const containerRef = useRef<any>(null);
   const audioRef = useRef<any>(null);
   const sceneRef = useRef<any>({
@@ -37,10 +37,12 @@ export default function App() {
   useEffect(() => {
     setMounted(true);
     
-    const link = document.createElement('link');
-    link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300&family=Playfair+Display:ital,wght@0,400;1,400&display=swap';
-    link.rel = 'stylesheet';
-    document.head.appendChild(link);
+    if (typeof document !== 'undefined') {
+      const link = document.createElement('link');
+      link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300&family=Playfair+Display:ital,wght@0,400;1,400&display=swap';
+      link.rel = 'stylesheet';
+      document.head.appendChild(link);
+    }
 
     return () => {
       if (sceneRef.current.frameId) {
@@ -59,7 +61,7 @@ export default function App() {
     // -- RENDERER --
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     containerRef.current.appendChild(renderer.domElement);
     sceneRef.current.renderer = renderer;
 
@@ -218,7 +220,8 @@ export default function App() {
   }, [isStarted, controlMode, mounted]);
 
   const handleStart = async () => {
-    const DeviceOrientationEventAny = (window as any).DeviceOrientationEvent;
+    const win: any = window;
+    const DeviceOrientationEventAny = win.DeviceOrientationEvent;
     
     const isSecure = typeof window !== 'undefined' && (window.location.protocol === 'https:' || window.location.hostname === 'localhost');
     
